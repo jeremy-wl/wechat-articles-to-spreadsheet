@@ -1,4 +1,5 @@
 import pygsheets
+import time
 from datetime import datetime
 
 TABLE_HEAD = ['推送', '更新', '标题', '摘要', '作者']
@@ -69,3 +70,4 @@ class GSpreadSheet:
         range_time_and_title = "B{}:C{}".format(article_row, article_row)
 
         worksheet.update_cells(range_time_and_title, [[updated_at, hyperlinked_title]])
+        time.sleep(1)  # 100 Read & 100 Write requests per 100 seconds per user
