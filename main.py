@@ -161,13 +161,34 @@ def invalidate_article_in_db_by_title(title, gzh_id):
     article.save()
 
 
+def filter_duplicate_articles(articles):
+    m = {}
+    res = []
+    for article in articles:
+        title = article['title']
+        if not m.get(title):
+            m[title] = []
+        m[title].append(article)
+
+    for title, article_list in m.items():
+        latest_article = article_list[0]
+        if len(article_list) > 1:
+            for article in article_list:
+                if article['datetime'] > latest_article['datetime']:
+                    latest_article = article
+        res.append(latest_article)
+
+    return res
+
+
 def main():
     doc_main = gspreadsheet.GSpreadSheet('credentials.json', 'WeChat')
     doc_arc = gspreadsheet.GSpreadSheet('credentials.json', 'WeChat Archived')
 
     for gzh_wechat_id in gzhs_wechat_id:
         gzh = get_zsh_info(doc_main, doc_arc, api, gzh_wechat_id)  # 获取 gzh in db / 创建 in db & doc
-        recent_articles = get_recent_articles(api, gzh.wechat_name)
+        recent_articles = filter_duplicate_articles(get_recent_articles(api, gzh.wechat_name))
+
         valid_article_titles = get_titles_from_valid_articles_in_gzh(gzh.id)
         new_articles = []
         for recent_article in recent_articles:
