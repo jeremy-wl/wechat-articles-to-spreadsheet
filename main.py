@@ -6,9 +6,10 @@ import gspreadsheet
 db = SqliteDatabase('wechat.sqlite')
 
 # Add official accounts your are following below
-gzhs_wechat_id = [
-    'ninechapter', 'collegedaily', 'iProgrammer'
+gzh_wechat_ids = [
+    'ninechapter', 'collegedaily'
 ]
+
 
 class GZH(Model):
     # Fld types in peewee: http://docs.peewee-orm.com/en/latest/peewee/models.html#field-types-table
@@ -178,6 +179,7 @@ def filter_duplicate_articles(articles):
                     latest_article = article
         res.append(latest_article)
 
+    res = sorted(res, key=lambda article: article['datetime'], reverse=True)
     return res
 
 
@@ -185,7 +187,7 @@ def main():
     doc_main = gspreadsheet.GSpreadSheet('credentials.json', 'WeChat')
     doc_arc = gspreadsheet.GSpreadSheet('credentials.json', 'WeChat Archived')
 
-    for gzh_wechat_id in gzhs_wechat_id:
+    for gzh_wechat_id in gzh_wechat_ids:
         gzh = get_zsh_info(doc_main, doc_arc, api, gzh_wechat_id)  # 获取 gzh in db / 创建 in db & doc
         recent_articles = filter_duplicate_articles(get_recent_articles(api, gzh.wechat_name))
 
