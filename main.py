@@ -5,10 +5,12 @@ import gspreadsheet
 
 db = SqliteDatabase('wechat.sqlite')
 
-# Add official accounts your are following below
 gzh_wechat_ids = [
     'ninechapter', 'collegedaily'
 ]
+
+UPDATE_INTERVAL = 4  # in hours
+# Add official accounts your are following below
 
 
 class GZH(Model):
@@ -68,14 +70,6 @@ def get_valid_articles(gzh_id=None):
         return valid_articles
     else:
         return []
-
-
-def get_titles_from_valid_articles_in_gzh(gzh_id):
-    valid_article_titles = set()
-    valid_articles = get_valid_articles(gzh_id)
-    for valid_article in valid_articles:
-        valid_article_titles.add(valid_article.title)
-    return valid_article_titles
 
 
 def create_gzh(doc_main, doc_arc, api, wechat_id):
@@ -189,9 +183,18 @@ def main():
 
     for gzh_wechat_id in gzh_wechat_ids:
         gzh = get_zsh_info(doc_main, doc_arc, api, gzh_wechat_id)  # 获取 gzh in db / 创建 in db & doc
+        print('Processing {}...'.format(gzh.wechat_name))
+
         recent_articles = filter_duplicate_articles(get_recent_articles(api, gzh.wechat_name))
 
-        valid_article_titles = get_titles_from_valid_articles_in_gzh(gzh.id)
+        valid_articles = get_valid_articles(gzh.id)
+        if valid_articles and datetime.datetime.now() - valid_articles.get().updated_at < datetime.timedelta(hours=UPDATE_INTERVAL):
+            continue
+
+        valid_article_titles = set()
+        for valid_article in valid_articles:
+            valid_article_titles.add(valid_article.title)
+
         new_articles = []
         for recent_article in recent_articles:
             if recent_article['title'] not in valid_article_titles:
@@ -211,4 +214,15 @@ def main():
 
     print('done')
 
+
+def remove_all_worksheets():
+    doc_main = gspreadsheet.GSpreadSheet('credentials.json', 'WeChat')
+    doc_arc = gspreadsheet.GSpreadSheet('credentials.json', 'WeChat Archived')
+    for doc in [doc_main, doc_arc]:
+        for title, worksheet in doc.worksheets.items():
+            if not title == '0':
+                worksheet.spreadsheet.del_worksheet(worksheet)
+
+
 main()
+# remove_all_worksheets()

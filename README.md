@@ -52,6 +52,10 @@
     [Limits and Quotas on API Requests](https://developers.google.com/analytics/devguides/config/provisioning/v3/limits-quotas).
     Be aware of those if you run the script unattended.
 
+## TODO
+- [ ] Adding [proxy pool](https://github.com/jhao104/proxy_pool) to avoid CAPTCHAs from WeChat-Sogou
+- [ ] Manually mark articles in spreadsheet as read for the script to archive those articles
+
 
 ## Screenshots
 ![](Screenshots/screenshot1.png)
