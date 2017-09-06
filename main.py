@@ -1,7 +1,9 @@
 from peewee import *
 import wechatsogou
 import datetime
+from collections import OrderedDict
 import gspreadsheet
+import re
 
 db = SqliteDatabase('wechat.sqlite')
 
@@ -62,12 +64,12 @@ def get_recent_articles(api, wechat_name):
     return articles
 
 
-def get_valid_articles(gzh_id=None):
+def get_valid_articles_from_db(gzh_id=None):
     if gzh_id is None:
         return Article.select().where(Article.is_valid)
-    valid_articles = Article.select().where(Article.gzh == gzh_id, Article.is_valid)
-    if valid_articles.exists():
-        return valid_articles
+    valid_articles_in_db = Article.select().where(Article.gzh == gzh_id, Article.is_valid)
+    if valid_articles_in_db.exists():
+        return valid_articles_in_db
     else:
         return []
 
@@ -134,8 +136,9 @@ def expire_old_articles(doc_main, doc_arc, old_article_titles, gzh_id):
     gzh = GZH.get(GZH.id == gzh_id)
     sheet_cur = doc_main    .worksheets[gzh.wechat_name]
     sheet_arc = doc_arc.worksheets[gzh.wechat_name]
-    for title in old_article_titles:
+    for index, title in enumerate(old_article_titles):
         invalidate_article_in_db_by_title(title, gzh_id)
+        print('  Archiving old article #{}: {}'.format(index, title))
         archive_expired_article_in_worksheet(sheet_cur, sheet_arc, title)
 
 
@@ -177,40 +180,67 @@ def filter_duplicate_articles(articles):
     return res
 
 
+def get_worksheets_by_updated_time(doc_main, doc_arc, api, gzh_wechat_ids):
+    d = {}
+    for wechat_id in gzh_wechat_ids:
+        gzh = get_zsh_info(doc_main, doc_arc, api, wechat_id)  # 获取 gzh in db / 创建 in db & doc
+        worksheet = doc_main.worksheets[gzh.wechat_name]
+
+        updated_at_str = worksheet.cell('B2').value
+        if updated_at_str:
+            res = re.compile('\d{2}').findall(updated_at_str)
+            mm, dd, hh, minute = map(int, res)
+            datetime_updated_at = datetime.datetime(datetime.datetime.now().year, mm, dd, hh, minute)
+            d[gzh.id] = (worksheet, datetime_updated_at)
+        else:
+            d[gzh.id] = (worksheet, datetime.datetime.now() - datetime.timedelta(weeks=9999))
+        #  {1: ('公众号b', 2017-09-01), 2: ('公众号a', 2017-09-11)}
+    return OrderedDict(sorted(d.items(), key=lambda x: x[1][1]))  # sorted entries by updated time
+
+
 def main():
     doc_main = gspreadsheet.GSpreadSheet('credentials.json', 'WeChat')
     doc_arc = gspreadsheet.GSpreadSheet('credentials.json', 'WeChat Archived')
 
-    for gzh_wechat_id in gzh_wechat_ids:
-        gzh = get_zsh_info(doc_main, doc_arc, api, gzh_wechat_id)  # 获取 gzh in db / 创建 in db & doc
-        print('Processing {}...'.format(gzh.wechat_name))
+    dict_worksheets = get_worksheets_by_updated_time(doc_main, doc_arc, api, gzh_wechat_ids)
 
-        recent_articles = filter_duplicate_articles(get_recent_articles(api, gzh.wechat_name))
+    for gzh_id, tuple_worksheet in dict_worksheets.items():
 
-        valid_articles = get_valid_articles(gzh.id)
-        if valid_articles and datetime.datetime.now() - valid_articles.get().updated_at < datetime.timedelta(hours=UPDATE_INTERVAL):
+        worksheet = tuple_worksheet[0]
+        wechat_name = worksheet.title
+        print('Processing {}...'.format(wechat_name))
+
+        valid_articles_in_db = get_valid_articles_from_db(gzh_id)
+        if valid_articles_in_db and datetime.datetime.now() - valid_articles_in_db.get().updated_at < datetime.timedelta(hours=UPDATE_INTERVAL):
             continue
 
-        valid_article_titles = set()
-        for valid_article in valid_articles:
-            valid_article_titles.add(valid_article.title)
+        recent_articles = filter_duplicate_articles(get_recent_articles(api, wechat_name))
+
+        valid_article_titles_in_db = set()
+        for valid_article_in_db in valid_articles_in_db:
+            valid_article_titles_in_db.add(valid_article_in_db.title)
 
         new_articles = []
+        i = 0
         for recent_article in recent_articles:
-            if recent_article['title'] not in valid_article_titles:
+            if recent_article['title'] not in valid_article_titles_in_db:
                 new_articles.append(recent_article)
-                insert_new_article(gzh.id, recent_article)
             else:
                 update_article_in_db(recent_article)  # update article content_url and timestamp
-                doc_main.update_article_url(gzh.wechat_name, recent_article)
-                valid_article_titles.remove(recent_article['title'])
+                print('  Updating article #{}: {}'.format(i, recent_article['title']))
+                i += 1
+                doc_main.update_article_url(wechat_name, recent_article)
+                valid_article_titles_in_db.remove(recent_article['title'])
 
         if len(new_articles) != 0:  # insert new articles into sheet
-            doc_main.add_new_articles(gzh.wechat_name, new_articles)
+            for new_article in new_articles:
+                insert_new_article(gzh_id, new_article)
+            doc_main.add_new_articles(wechat_name, new_articles)
+            print('  Inserting {} new articles'.format(len(new_articles)))
 
         # all left in valid_article_titles are not valid any more, since we removed all valid
         # ones (in recent_articles), others become history articles and can't be updated
-        expire_old_articles(doc_main, doc_arc, valid_article_titles, gzh.id)
+        expire_old_articles(doc_main, doc_arc, valid_article_titles_in_db, gzh_id)
 
     print('done')
 
